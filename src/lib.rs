@@ -1,11 +1,10 @@
 use encoding_rs::UTF_16LE;
-use eztrans_rs::EzTransLib;
+use eztrans_rs::{EzTransLib, Container};
 use fxhash::FxHashMap;
-use libloading::Library;
 use serde_derive::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fs;
-use std::path;
+use std::path::Path;
 use std::ptr::null_mut;
 
 pub struct EzDictItem {
@@ -116,15 +115,15 @@ mod dict_items {
 }
 
 pub struct EzContext {
-    lib: EzTransLib,
+    lib: Container<EzTransLib<'static>>,
     cache: FxHashMap<String, String>,
     dict: EzDict,
 }
 
 impl EzContext {
     pub fn from_path(
-        lib: EzTransLib,
-        path: &path::Path,
+        lib: Container<EzTransLib<'static>>,
+        path: &Path,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let cache_path = path.join("cache.yml");
         let dict_path = path.join("userdic.yml");
@@ -180,24 +179,30 @@ impl EzContext {
 #[no_mangle]
 pub unsafe extern "C" fn ez_init(ez_path: *const u16, ez_path_len: usize) -> *mut EzContext {
     let path = utf16_to_string(ez_path, ez_path_len);
+    let path = Path::new(path.as_ref());
 
-    let lib = match Library::new(path.as_ref()) {
+    eprintln!("Loading lib from {}", path.display());
+
+    let lib = match eztrans_rs::load_library(path.join("J2KEngine.dll")) {
         Ok(lib) => lib,
         Err(err) => {
-            eprintln!("Library loading failed: {:?}", err);
+            eprintln!("EzTrans library loading failed: {:?}", err);
             return null_mut();
         }
     };
 
-    let lib = match EzTransLib::new(lib) {
-        Ok(lib) => lib,
-        Err(err) => {
-            eprintln!("Load EzTrans library failed: {:?}", err);
-            return null_mut();
-        }
-    };
+    let dat_dir = path.join("Dat");
+    let dat_dir = dat_dir.to_str().unwrap();
 
-    let ctx = match EzContext::from_path(lib, path::Path::new(".")) {
+    eprintln!("Loading Dat dir from {}", dat_dir);
+    let ret = lib.initialize("CSUSER123455", dat_dir);
+
+    if ret != 0 {
+        eprintln!("Library initialize failed return code :{}", ret);
+        return null_mut();
+    }
+
+    let ctx = match EzContext::from_path(lib, Path::new(".")) {
         Ok(ctx) => ctx,
         Err(err) => {
             eprintln!("Loading context failed: {:?}", err);

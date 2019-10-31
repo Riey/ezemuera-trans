@@ -21,7 +21,7 @@ impl EzDictItem {
 
     pub fn apply(&self, text: &mut String) {
         let mut prev_pos = 0;
-        while let Some(pos) = text[prev_pos..].find(&self.key) {
+        while let Some(pos) = twoway::find_str(&text[prev_pos..], &self.key) {
             text.replace_range(pos..pos + self.key.len(), &self.value);
             prev_pos = pos + self.value.len();
         }

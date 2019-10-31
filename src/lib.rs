@@ -158,6 +158,19 @@ impl EzContext {
         })
     }
 
+    pub fn save_to(&self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        let cache_path = path.join("cache.yml");
+        let dict_path = path.join("userdic.yml");
+
+        use std::fs::write;
+        use serde_yaml::to_vec;
+
+        write(cache_path, to_vec(&self.cache)?)?;
+        write(dict_path, to_vec(&self.dict)?)?;
+
+        Ok(())
+    }
+
     fn translate_impl(&mut self, text: &[u16]) -> &str {
         let dict = &mut self.dict;
         let lib = &self.lib;
@@ -253,9 +266,11 @@ impl EzContext {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn ez_init(ez_path: *const u16, ez_path_len: usize) -> *mut EzContext {
+pub unsafe extern "C" fn ez_init(ez_path: *const u16, ez_path_len: usize, ctx_path: *const u16, ctx_path_len: usize) -> *mut EzContext {
     let path = utf16_to_string(ez_path, ez_path_len);
+    let ctx_path = utf16_to_string(ctx_path, ctx_path_len);
     let path = Path::new(path.as_ref());
+    let ctx_path = Path::new(ctx_path.as_ref());
 
     eprintln!("Loading lib from {}", path.display());
 
@@ -272,7 +287,7 @@ pub unsafe extern "C" fn ez_init(ez_path: *const u16, ez_path_len: usize) -> *mu
 
     lib.initialize(CStr::from_bytes_with_nul_unchecked(b"CSUSER123455\0"), CStr::from_bytes_with_nul_unchecked(&dat_dir[..]));
 
-    let ctx = match EzContext::from_path(lib, Path::new(".")) {
+    let ctx = match EzContext::from_path(lib, ctx_path) {
         Ok(ctx) => ctx,
         Err(err) => {
             eprintln!("Loading context failed: {:?}", err);
@@ -284,8 +299,18 @@ pub unsafe extern "C" fn ez_init(ez_path: *const u16, ez_path_len: usize) -> *mu
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn ez_delete(ptr: *mut EzContext) {
-    let _ = Box::from_raw(ptr);
+pub unsafe extern "C" fn ez_save(ctx: *mut EzContext, path: *const u16, path_len: usize) {
+    let path = utf16_to_string(path, path_len);
+    let path = Path::new(path.as_ref());
+
+    if let Err(err) = (*ctx).save_to(path) {
+        eprintln!("Save err: {:?}", err);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ez_delete(ctx: *mut EzContext) {
+    let _ = Box::from_raw(ctx);
 }
 
 #[no_mangle]

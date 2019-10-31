@@ -1,4 +1,4 @@
-use encoding_rs::{EUC_KR, SHIFT_JIS, UTF_16LE, EncoderResult};
+use encoding_rs::{EncoderResult, EUC_KR, SHIFT_JIS, UTF_16LE};
 use eztrans_rs::{Container, EzTransLib};
 use fxhash::FxHashMap;
 use serde_derive::{Deserialize, Serialize};
@@ -151,9 +151,10 @@ mod dict_items {
 
 pub struct EzContext {
     lib: Container<EzTransLib<'static>>,
-    cache: FxHashMap<Vec<u16>, String>,
+    cache: FxHashMap<String, String>,
     dict: EzDict,
     encode_buffer: Vec<u8>,
+    string_buffer: String,
 }
 
 impl EzContext {
@@ -171,7 +172,7 @@ impl EzContext {
             FxHashMap::default()
         };
 
-        cache.insert(Vec::new(), String::new());
+        cache.insert(String::new(), String::new());
 
         let mut dict = if dict_path.exists() {
             serde_yaml::from_reader(fs::File::open(dict_path)?)?
@@ -188,6 +189,7 @@ impl EzContext {
             cache,
             dict,
             encode_buffer: Vec::with_capacity(8192),
+            string_buffer: String::new(),
         })
     }
 
@@ -203,41 +205,37 @@ impl EzContext {
         Ok(())
     }
 
-    fn translate_impl(&mut self, text: &[u16]) -> &str {
+    fn translate_impl(&mut self, text: &str) -> &str {
         let dict = &mut self.dict;
         let lib = &self.lib;
         let buf = &mut self.encode_buffer;
+        let str_buf = &mut self.string_buffer;
 
         self.cache.entry(text.into()).or_insert_with(move || {
-            let mut decoder = UTF_16LE.new_decoder_without_bom_handling();
-            let original_len = decoder.max_utf8_buffer_length_without_replacement(text.len() * 2).unwrap_or(0);
-            let mut original: String = String::with_capacity(original_len);
-            let (_decoder_ret, _) = decoder.decode_to_string_without_replacement(u16_slice_to_u8_slice(text), &mut original, true);
-
-            for before in dict.before_dict.iter() {
-                before.apply(&mut original);
-            }
+            str_buf.push_str(text);
 
             let mut encoder = SHIFT_JIS.new_encoder();
             let mut decoder = EUC_KR.new_decoder_without_bom_handling();
 
             let max_buf_len = encoder
-                .max_buffer_length_from_utf8_without_replacement(original.len())
+                .max_buffer_length_from_utf8_without_replacement(str_buf.len())
                 .unwrap_or(0);
 
             buf.reserve(max_buf_len + 1);
 
             let (encoder_ret, _) =
-                encoder.encode_from_utf8_to_vec_without_replacement(&original, buf, true);
+                encoder.encode_from_utf8_to_vec_without_replacement(&str_buf, buf, true);
 
             buf.push(0);
 
             assert_eq!(encoder_ret, EncoderResult::InputEmpty);
 
-            let translated = unsafe { lib.translate(CStr::from_bytes_with_nul_unchecked(&buf[..])) };
+            let translated =
+                unsafe { lib.translate(CStr::from_bytes_with_nul_unchecked(&buf[..])) };
             let translated = translated.as_bytes();
 
             buf.clear();
+            str_buf.clear();
 
             let mut ret = String::with_capacity(
                 decoder
@@ -255,50 +253,64 @@ impl EzContext {
         })
     }
 
-    pub fn translate<'a>(&'a mut self, text: &[u16]) -> &'a str {
-
+    pub fn translate(&mut self, text: &str) -> &str {
         if !self.cache.contains_key(text) {
-            let max_len = UTF_16LE.new_decoder_without_bom_handling().max_utf8_buffer_length_without_replacement(text.len() * 2);
+            let max_len = UTF_16LE
+                .new_decoder_without_bom_handling()
+                .max_utf8_buffer_length_without_replacement(text.len() * 2);
             let mut ret = String::with_capacity(max_len.unwrap_or(text.len() * 3));
-            let mut prev_pos = 0;
-            let mut is_in_japanese = is_japanese(text[0]);
 
-            for (pos, &ch) in text.into_iter().enumerate() {
-                if is_japanese(ch) {
-                    if !is_in_japanese {
-                        let (_decoder_ret, _) = UTF_16LE.new_decoder_without_bom_handling().decode_to_string_without_replacement(u16_slice_to_u8_slice(&text[prev_pos..=pos]), &mut ret, true);
+            {
+                let mut text = text.into();
 
-                        prev_pos = pos;
-                        is_in_japanese = true;
+                for before in self.dict.before_dict.iter() {
+                    before.apply(&mut text);
+                }
+
+                let mut prev_pos = 0;
+                let mut is_in_japanese = is_japanese(text.chars().next().unwrap());
+
+                for (pos, ch) in text.char_indices() {
+                    if is_japanese(ch) {
+                        if !is_in_japanese {
+                            ret.push_str(&text[prev_pos..=pos]);
+
+                            prev_pos = pos;
+                            is_in_japanese = true;
+                        }
+                    } else {
+                        if is_in_japanese {
+                            let translated = self.translate_impl(&text[prev_pos..=pos]);
+                            ret.push_str(translated);
+
+                            prev_pos = pos;
+                            is_in_japanese = false;
+                        }
                     }
+                }
+
+                if !is_in_japanese {
+                    ret.push_str(&text[prev_pos..]);
                 } else {
-                    if is_in_japanese {
-                        let translated = self.translate_impl(&text[prev_pos..=pos]);
-                        ret.push_str(translated);
-
-                        prev_pos = pos;
-                        is_in_japanese = false;
-                    }
+                    let translated = self.translate_impl(&text[prev_pos..]);
+                    ret.push_str(translated);
                 }
             }
 
-            if !is_in_japanese {
-                let (_decoder_ret, _) = UTF_16LE.new_decoder_without_bom_handling().decode_to_string_without_replacement(u16_slice_to_u8_slice(&text[prev_pos..]), &mut ret, true);
-            } else {
-                let translated = self.translate_impl(&text[prev_pos..]);
-                ret.push_str(translated);
-            }
-
-            self.cache.insert(Vec::from(text), ret);
+            self.cache.insert(text.into(), ret);
         }
-
 
         self.cache.get(text).unwrap()
     }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn ez_init(ez_path: *const u16, ez_path_len: usize, ctx_path: *const u16, ctx_path_len: usize) -> *mut EzContext {
+pub unsafe extern "C" fn ez_init(
+    ez_path: *const u16,
+    ez_path_len: usize,
+    ctx_path: *const u16,
+    ctx_path_len: usize,
+) -> *mut EzContext {
     let path = utf16_to_string(ez_path, ez_path_len);
     let ctx_path = utf16_to_string(ctx_path, ctx_path_len);
     let path = Path::new(path.as_ref());
@@ -317,7 +329,10 @@ pub unsafe extern "C" fn ez_init(ez_path: *const u16, ez_path_len: usize, ctx_pa
     let mut dat_dir = path.join("Dat").to_str().unwrap().to_string().into_bytes();
     dat_dir.push(0);
 
-    lib.initialize(CStr::from_bytes_with_nul_unchecked(b"CSUSER123455\0"), CStr::from_bytes_with_nul_unchecked(&dat_dir[..]));
+    lib.initialize(
+        CStr::from_bytes_with_nul_unchecked(b"CSUSER123455\0"),
+        CStr::from_bytes_with_nul_unchecked(&dat_dir[..]),
+    );
 
     let ctx = match EzContext::from_path(lib, ctx_path) {
         Ok(ctx) => ctx,
@@ -389,9 +404,9 @@ pub unsafe extern "C" fn ez_translate(
     out_text: *mut *const u8,
     out_text_len: *mut usize,
 ) -> i32 {
-    let text = std::slice::from_raw_parts(text, text_len);
+    let text = utf16_to_string(text, text_len);
 
-    let translated = (*ctx).translate(text);
+    let translated = (*ctx).translate(text.as_ref());
 
     *out_text = translated.as_ptr();
     *out_text_len = translated.len();
@@ -400,9 +415,7 @@ pub unsafe extern "C" fn ez_translate(
 }
 
 fn u16_slice_to_u8_slice(slice: &[u16]) -> &[u8] {
-    unsafe {
-        std::slice::from_raw_parts(slice.as_ptr() as *const u8, slice.len() * 2)
-    }
+    unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const u8, slice.len() * 2) }
 }
 
 unsafe fn utf16_to_string<'a>(text: *const u16, len: usize) -> Cow<'a, str> {
@@ -412,7 +425,7 @@ unsafe fn utf16_to_string<'a>(text: *const u16, len: usize) -> Cow<'a, str> {
     text
 }
 
-fn is_japanese(ch: u16) -> bool {
+fn is_japanese(ch: char) -> bool {
+    let ch = ch as u32;
     (ch >= 0x3000 && ch <= 0x30FF) || (ch >= 0x4E00 && ch <= 0x9FAF)
 }
-

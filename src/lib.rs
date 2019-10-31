@@ -225,7 +225,7 @@ impl EzContext {
                 .max_buffer_length_from_utf8_without_replacement(original.len())
                 .unwrap_or(0);
 
-            buf.reserve(max_buf_len);
+            buf.reserve(max_buf_len + 1);
 
             let (encoder_ret, _) =
                 encoder.encode_from_utf8_to_vec_without_replacement(&original, buf, true);

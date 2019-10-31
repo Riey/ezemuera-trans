@@ -267,8 +267,8 @@ pub unsafe extern "C" fn ez_init(ez_path: *const u16, ez_path_len: usize) -> *mu
         }
     };
 
-    let mut dat_dir = path.to_str().unwrap().to_string().into_bytes();
-    dat_dir.extend_from_slice(b"Dat\0");
+    let mut dat_dir = path.join("Dat").to_str().unwrap().to_string().into_bytes();
+    dat_dir.push(0);
 
     lib.initialize(CStr::from_bytes_with_nul_unchecked(b"CSUSER123455\0"), CStr::from_bytes_with_nul_unchecked(&dat_dir[..]));
 

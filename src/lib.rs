@@ -15,12 +15,15 @@ pub struct EzDictItem {
 
 impl EzDictItem {
     pub fn new(key: String, value: String) -> Self {
+        assert!(!key.is_empty());
         Self { key, value }
     }
 
     pub fn apply(&self, text: &mut String) {
-        while let Some(pos) = text.find(&self.key) {
-            text.replace_range(pos..pos + self.key.len(), &self.key);
+        let mut prev_pos = 0;
+        while let Some(pos) = text[prev_pos..].find(&self.key) {
+            text.replace_range(pos..pos + self.key.len(), &self.value);
+            prev_pos = pos + self.value.len();
         }
     }
 
@@ -41,6 +44,28 @@ fn dict_item_test() {
     let mut foo = "123def".into();
     item.apply(&mut foo);
     assert_eq!(foo, "abcdef");
+}
+
+#[test]
+#[should_panic]
+fn dict_item_empty_key_test() {
+    let _item = EzDictItem::new("".into(), "123".into());
+}
+
+#[test]
+fn dict_item_empty_value_test() {
+    let item = EzDictItem::new("123".into(), "".into());
+    let mut foo = "123def".into();
+    item.apply(&mut foo);
+    assert_eq!(foo, "def");
+}
+
+#[test]
+fn dict_item_eq_kv_test() {
+    let item = EzDictItem::new("123".into(), "123".into());
+    let mut foo = "123def".into();
+    item.apply(&mut foo);
+    assert_eq!(foo, "123def");
 }
 
 #[derive(Serialize, Deserialize, Default)]

@@ -35,6 +35,14 @@ impl EzDictItem {
     }
 }
 
+#[test]
+fn dict_item_test() {
+    let item = EzDictItem::new("123".into(), "abc".into());
+    let mut foo = "123def".into();
+    item.apply(&mut foo);
+    assert_eq!(foo, "abcdef");
+}
+
 #[derive(Serialize, Deserialize, Default)]
 struct EzDict {
     #[serde(default)]

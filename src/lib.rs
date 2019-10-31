@@ -128,12 +128,12 @@ impl EzContext {
         lib: Container<EzTransLib<'static>>,
         path: &Path,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let cache_path = path.join("cache.yml");
+        let cache_path = path.join("cache.msgpack");
         let dict_path = path.join("userdic.yml");
         let json_dict_path = path.join("userdic.json");
 
         let mut cache = if cache_path.exists() {
-            serde_yaml::from_reader(fs::File::open(cache_path)?)?
+            rmp_serde::from_read(fs::File::open(cache_path)?)?
         } else {
             FxHashMap::default()
         };
@@ -159,14 +159,13 @@ impl EzContext {
     }
 
     pub fn save_to(&self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        let cache_path = path.join("cache.yml");
+        let cache_path = path.join("cache.msgpack");
         let dict_path = path.join("userdic.yml");
 
         use std::fs::write;
-        use serde_yaml::to_vec;
 
-        write(cache_path, to_vec(&self.cache)?)?;
-        write(dict_path, to_vec(&self.dict)?)?;
+        write(cache_path, rmp_serde::to_vec(&self.cache)?)?;
+        write(dict_path, serde_yaml::to_vec(&self.dict)?)?;
 
         Ok(())
     }

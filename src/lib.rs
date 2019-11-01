@@ -2,7 +2,6 @@ use encoding_rs::{EncoderResult, EUC_KR, SHIFT_JIS, UTF_16LE};
 use eztrans_rs::{Container, EzTransLib};
 use fxhash::FxHashMap;
 use serde_derive::{Deserialize, Serialize};
-use std::borrow::Cow;
 use std::ffi::CStr;
 use std::fs;
 use std::path::Path;
@@ -305,7 +304,7 @@ impl EzContext {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn ez_init(
+pub unsafe extern "cdecl" fn ez_init(
     ez_path: *const u16,
     ez_path_len: usize,
     ctx_path: *const u16,
@@ -313,8 +312,8 @@ pub unsafe extern "C" fn ez_init(
 ) -> *mut EzContext {
     let path = utf16_to_string(ez_path, ez_path_len);
     let ctx_path = utf16_to_string(ctx_path, ctx_path_len);
-    let path = Path::new(path.as_ref());
-    let ctx_path = Path::new(ctx_path.as_ref());
+    let path = Path::new(&path);
+    let ctx_path = Path::new(&ctx_path);
 
     eprintln!("Loading lib from {}", path.display());
 
@@ -346,9 +345,9 @@ pub unsafe extern "C" fn ez_init(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn ez_save(ctx: *mut EzContext, path: *const u16, path_len: usize) {
+pub unsafe extern "cdecl" fn ez_save(ctx: *mut EzContext, path: *const u16, path_len: usize) {
     let path = utf16_to_string(path, path_len);
-    let path = Path::new(path.as_ref());
+    let path = Path::new(&path);
 
     if let Err(err) = (*ctx).save_to(path) {
         eprintln!("Save err: {:?}", err);
@@ -356,12 +355,13 @@ pub unsafe extern "C" fn ez_save(ctx: *mut EzContext, path: *const u16, path_len
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn ez_delete(ctx: *mut EzContext) {
+pub unsafe extern "cdecl" fn ez_delete(ctx: *mut EzContext) {
+    (*ctx).lib.terminate();
     let _ = Box::from_raw(ctx);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn ez_add_before_dict(
+pub unsafe extern "cdecl" fn ez_add_before_dict(
     ctx: *mut EzContext,
     key: *const u16,
     key_len: usize,
@@ -371,15 +371,12 @@ pub unsafe extern "C" fn ez_add_before_dict(
     let key = utf16_to_string(key, key_len);
     let value = utf16_to_string(value, value_len);
 
-    (*ctx)
-        .dict
-        .before_dict
-        .push(EzDictItem::new(key.into_owned(), value.into_owned()));
+    (*ctx).dict.before_dict.push(EzDictItem::new(key, value));
     (*ctx).dict.sort_before_dict();
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn ez_add_after_dict(
+pub unsafe extern "cdecl" fn ez_add_after_dict(
     ctx: *mut EzContext,
     key: *const u16,
     key_len: usize,
@@ -389,15 +386,12 @@ pub unsafe extern "C" fn ez_add_after_dict(
     let key = utf16_to_string(key, key_len);
     let value = utf16_to_string(value, value_len);
 
-    (*ctx)
-        .dict
-        .after_dict
-        .push(EzDictItem::new(key.into_owned(), value.into_owned()));
+    (*ctx).dict.after_dict.push(EzDictItem::new(key, value));
     (*ctx).dict.sort_after_dict();
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn ez_translate(
+pub unsafe extern "cdecl" fn ez_translate(
     ctx: *mut EzContext,
     text: *const u16,
     text_len: usize,
@@ -418,11 +412,11 @@ fn u16_slice_to_u8_slice(slice: &[u16]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const u8, slice.len() * 2) }
 }
 
-unsafe fn utf16_to_string<'a>(text: *const u16, len: usize) -> Cow<'a, str> {
+unsafe fn utf16_to_string<'a>(text: *const u16, len: usize) -> String {
     let (text, _) = UTF_16LE
         .decode_without_bom_handling(u16_slice_to_u8_slice(std::slice::from_raw_parts(text, len)));
 
-    text
+    text.into()
 }
 
 fn is_japanese(ch: char) -> bool {

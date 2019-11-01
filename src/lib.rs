@@ -273,14 +273,14 @@ impl EzContext {
                 for (pos, ch) in text.char_indices() {
                     if is_japanese(ch) {
                         if !is_in_japanese {
-                            ret.push_str(&text[prev_pos..=pos]);
+                            ret.push_str(&text[prev_pos..pos]);
 
                             prev_pos = pos;
                             is_in_japanese = true;
                         }
                     } else {
                         if is_in_japanese {
-                            let translated = self.translate_impl(&text[prev_pos..=pos]);
+                            let translated = self.translate_impl(&text[prev_pos..pos]);
                             ret.push_str(translated);
 
                             prev_pos = pos;

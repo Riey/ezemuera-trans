@@ -21,7 +21,7 @@ impl EzDictItem {
     pub fn apply(&self, text: &mut String) {
         let mut prev_pos = 0;
         while let Some(pos) = twoway::find_str(&text[prev_pos..], &self.key) {
-            text.replace_range(pos..pos + self.key.len(), &self.value);
+            text.replace_range(prev_pos + pos..prev_pos + pos + self.key.len(), &self.value);
             prev_pos = pos + self.value.len();
         }
     }
@@ -39,10 +39,10 @@ impl EzDictItem {
 
 #[test]
 fn dict_item_test() {
-    let item = EzDictItem::new("123".into(), "abc".into());
-    let mut foo = "123def".into();
+    let item = EzDictItem::new("あなた".into(), "아나타".into());
+    let mut foo = "あなた당신あなた".into();
     item.apply(&mut foo);
-    assert_eq!(foo, "abcdef");
+    assert_eq!(foo, "아나타당신아나타");
 }
 
 #[test]
